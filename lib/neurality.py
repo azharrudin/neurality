@@ -341,6 +341,16 @@ class Neurality:
 
     class Activations:
         @staticmethod
+        def gelu(x):
+            """GELU using the tanh approximation used by GPT-1."""
+            scale = math.sqrt(2 / math.pi)
+            return Neurality.Math.unary(
+                x,
+                lambda v: 0.5 * v * (1 + math.tanh(scale * (v + 0.044715 * v ** 3))),
+                lambda np, a: 0.5 * a * (1 + np.tanh(scale * (a + 0.044715 * a ** 3))),
+            )
+
+        @staticmethod
         def relu(x):
             return Neurality.Math.unary(x, lambda v: max(0, v), lambda np, a: np.maximum(0, a))
 
@@ -387,6 +397,17 @@ class Neurality:
         loss_cce = staticmethod(lambda a, target: Neurality.Loss.loss_cce(a, target))
 
     class Derivations:
+        @staticmethod
+        def deriv_gelu(x):
+            scale = math.sqrt(2 / math.pi)
+            def derivative(v):
+                t = math.tanh(scale * (v + 0.044715 * v ** 3))
+                return 0.5 * (1 + t) + 0.5 * v * (1 - t * t) * scale * (1 + 3 * 0.044715 * v * v)
+            def numpy_derivative(np, a):
+                t = np.tanh(scale * (a + 0.044715 * a ** 3))
+                return 0.5 * (1 + t) + 0.5 * a * (1 - t * t) * scale * (1 + 3 * 0.044715 * a * a)
+            return Neurality.Math.unary(x, derivative, numpy_derivative)
+
         @staticmethod
         def deriv_tanh(x):
             return Neurality.Math.unary(x, lambda v: 1 - math.tanh(v) ** 2, lambda np, a: 1 - np.tanh(a) ** 2)
@@ -479,7 +500,7 @@ class Neurality:
 
     @classmethod
     def _model_functions(cls):
-        names = ("relu", "sigmoid", "tanh", "linear", "leaky_relu", "softmax")
+        names = ("relu", "gelu", "sigmoid", "tanh", "linear", "leaky_relu", "softmax")
         return ({name: getattr(cls.Activations, name) for name in names},
                 {f"deriv_{name}": getattr(cls.Derivations, f"deriv_{name}")
                  for name in names})
@@ -490,6 +511,12 @@ class Neurality:
             return ("weights",)
         if layer["type"] == "attention":
             return ("Wq", "Wk", "Wv")
+        if layer["type"] == "multihead_attention":
+            return ("Wq", "Wk", "Wv", "Wo")
+        if layer["type"] == "positional_embedding":
+            return ("weights",)
+        if layer["type"] == "norm":
+            return ("gamma", "beta")
         return ()
 
     def _feature_size(self):
@@ -513,6 +540,54 @@ class Neurality:
                             "weights": self._random_matrix(vocab_size, embedding_size, 1 / math.sqrt(embedding_size))})
         return self
 
+    def positional_embedding(self, max_length):
+        if type(max_length) is not int or max_length <= 0:
+            raise ValueError("max_length must be a positive integer")
+        size = self._feature_size()
+        self.layers.append({"type": "positional_embedding", "embedding_size": size,
+                            "max_length": max_length,
+                            "weights": self._random_matrix(max_length, size, 1 / math.sqrt(size))})
+        return self
+
+    def norm(self, epsilon=1e-5):
+        if isinstance(epsilon, bool) or not isinstance(epsilon, (int, float)) or not math.isfinite(epsilon) or epsilon <= 0:
+            raise ValueError("epsilon must be positive and finite")
+        size = self._feature_size()
+        self.layers.append({"type": "norm", "embedding_size": size, "epsilon": float(epsilon),
+                            "gamma": self.Math.array([1.0] * size, self._backend),
+                            "beta": self.Math.array([0.0] * size, self._backend)})
+        return self
+
+    def residual_start(self):
+        self.layers.append({"type": "residual_start", "embedding_size": self._feature_size()})
+        return self
+
+    def residual_end(self):
+        depth = 0
+        for layer in reversed(self.layers):
+            if layer["type"] == "residual_end":
+                depth += 1
+            elif layer["type"] == "residual_start":
+                if depth == 0:
+                    if layer["embedding_size"] != self._feature_size():
+                        raise ValueError("residual input and output feature sizes must match")
+                    self.layers.append({"type": "residual_end", "embedding_size": self._feature_size()})
+                    return self
+                depth -= 1
+        raise ValueError("residual_end requires a matching residual_start")
+
+    def _validate_residuals(self):
+        depth = 0
+        for layer in self.layers:
+            if layer["type"] == "residual_start":
+                depth += 1
+            elif layer["type"] == "residual_end":
+                depth -= 1
+                if depth < 0:
+                    raise ValueError("unmatched residual_end")
+        if depth:
+            raise ValueError("residual_start requires a matching residual_end")
+
     def attention(self, key_size=None, causal=False, embedding_size=None):
         if embedding_size is not None:
             if type(embedding_size) is not int or embedding_size <= 0:
@@ -534,7 +609,28 @@ class Neurality:
                             "Wv": self._random_matrix(size, size, 1 / math.sqrt(size))})
         return self
 
+    def multihead_attention(self, num_heads, causal=False, embedding_size=None):
+        if embedding_size is not None:
+            if type(embedding_size) is not int or embedding_size <= 0:
+                raise ValueError("embedding_size must be a positive integer")
+            if self.layers and embedding_size != self._feature_size():
+                raise ValueError("embedding_size must match the previous layer output")
+            if not self.layers:
+                self.INPUT_SIZE = embedding_size
+        size = self._feature_size()
+        if type(num_heads) is not int or num_heads <= 0 or size % num_heads:
+            raise ValueError("num_heads must be positive and divide the feature size")
+        if type(causal) is not bool:
+            raise ValueError("causal must be a boolean")
+        layer = {"type": "multihead_attention", "embedding_size": size,
+                 "num_heads": num_heads, "causal": causal}
+        for name in ("Wq", "Wk", "Wv", "Wo"):
+            layer[name] = self._random_matrix(size, size, 1 / math.sqrt(size))
+        self.layers.append(layer)
+        return self
+
     def save(self, path):
+        self._validate_residuals()
         activations, derivatives = self._model_functions()
         layers = []
         for layer in self.layers:
@@ -596,7 +692,11 @@ class Neurality:
                         raise ValueError("all neurons in a layer must use the same activation")
                     model.perceptrons.append(neurons)
                     model.layers.append({"type": kind, "neurons": neurons})
-                elif kind in ("embedding", "attention"):
+                elif kind in ("residual_start", "residual_end"):
+                    if saved["embedding_size"] != size:
+                        raise ValueError("invalid residual feature size")
+                    getattr(model, kind)()
+                elif kind in ("embedding", "attention", "multihead_attention", "positional_embedding", "norm"):
                     dimension = saved["embedding_size"]
                     if type(dimension) is not int or dimension <= 0:
                         raise ValueError("embedding_size must be a positive integer")
@@ -607,12 +707,30 @@ class Neurality:
                             raise ValueError("invalid embedding configuration")
                         layer["vocab_size"] = vocab
                         shapes = {"weights": (vocab, dimension)}
-                    else:
+                    elif kind == "attention":
                         key = saved["key_size"]
                         if dimension != size or type(key) is not int or key <= 0 or type(saved["causal"]) is not bool:
                             raise ValueError("invalid attention configuration")
                         layer.update(key_size=key, causal=saved["causal"])
                         shapes = {"Wq": (dimension, key), "Wk": (dimension, key), "Wv": (dimension, dimension)}
+                    elif kind == "multihead_attention":
+                        heads = saved["num_heads"]
+                        if dimension != size or type(heads) is not int or heads <= 0 or dimension % heads or type(saved["causal"]) is not bool:
+                            raise ValueError("invalid multihead attention configuration")
+                        layer.update(num_heads=heads, causal=saved["causal"])
+                        shapes = {name: (dimension, dimension) for name in ("Wq", "Wk", "Wv", "Wo")}
+                    elif kind == "positional_embedding":
+                        length = saved["max_length"]
+                        if dimension != size or type(length) is not int or length <= 0:
+                            raise ValueError("invalid positional embedding configuration")
+                        layer["max_length"] = length
+                        shapes = {"weights": (length, dimension)}
+                    else:
+                        epsilon = saved["epsilon"]
+                        if dimension != size or isinstance(epsilon, bool) or not isinstance(epsilon, (int, float)) or not math.isfinite(epsilon) or epsilon <= 0:
+                            raise ValueError("invalid normalization configuration")
+                        layer["epsilon"] = float(epsilon)
+                        shapes = {"gamma": (dimension,), "beta": (dimension,)}
                     for name, shape in shapes.items():
                         value = cls.Math.array(saved[name], model._backend)
                         if cls.Math.shape(value) != shape or not cls.Math.finite(value):
@@ -621,6 +739,7 @@ class Neurality:
                     model.layers.append(layer)
                 else:
                     raise ValueError("unsupported layer type")
+            model._validate_residuals()
             return model
         except (KeyError, TypeError, ValueError, OverflowError) as error:
             raise ValueError(f"Invalid Neurality model file: {error}") from error
@@ -671,7 +790,8 @@ class Neurality:
     def _restore_rows(self, rows, shape):
         return self.Math.reshape(rows, tuple(shape[:-1]) + (self.Math.shape(rows)[-1],))
 
-    def forward(self, data):
+    def forward(self, data, padding_mask=None):
+        self._validate_residuals()
         output = self.Math.array(data, self._backend)
         if len(self.Math.shape(output)) == 1:
             output = self.Math.array([self.Math.tolist(output)], self._backend)
@@ -681,7 +801,20 @@ class Neurality:
                 or (embedding_input and len(shape) != 2)
                 or (not embedding_input and shape[-1] != self.INPUT_SIZE)):
             raise ValueError("data must be finite and match the model input shape")
+        masks = None
+        if padding_mask is not None:
+            mask = self.Math.tolist(padding_mask)
+            mask_shape = self.Math.shape(mask)
+            batch = shape[0] if embedding_input or len(shape) == 3 else 1
+            length = shape[1] if embedding_input else shape[-2]
+            if batch == 1 and mask_shape == (length,):
+                mask = [mask]
+                mask_shape = (1, length)
+            if mask_shape != (batch, length) or any(v not in (0, 1) for v in self.Math.flatten(mask)):
+                raise ValueError("padding_mask must contain 0 or 1 with shape (batch, sequence)")
+            masks = mask
         self.layer_inputs, self.layer_linear, self._caches = [], [], []
+        residuals = []
         for layer in self.layers:
             self.layer_inputs.append(output)
             shape = self.Math.shape(output)
@@ -695,23 +828,64 @@ class Neurality:
                 output = self.Math.array([[self.Math.tolist(table[token]) for token in row] for row in ids], self._backend)
                 cache = {"ids": ids}
                 linear = None
+            elif kind == "positional_embedding":
+                length = shape[-2]
+                if length > layer["max_length"]:
+                    raise ValueError("sequence exceeds positional embedding max_length")
+                sequences = [output] if len(shape) == 2 else output
+                result = [[self.Math.add(row, layer["weights"][pos]) for pos, row in enumerate(sequence)] for sequence in sequences]
+                output = self.Math.array(result[0] if len(shape) == 2 else result, self._backend)
+                cache, linear = {"shape": shape}, None
+            elif kind == "norm":
+                rows = self.Math.tolist(self.Math.rows(output))
+                normalized, inverses = [], []
+                for row in rows:
+                    mean = sum(row) / len(row)
+                    inverse = 1 / math.sqrt(sum((v - mean) ** 2 for v in row) / len(row) + layer["epsilon"])
+                    normalized.append([(v - mean) * inverse for v in row])
+                    inverses.append(inverse)
+                result = [self.Math.add(self.Math.mul(row, layer["gamma"]), layer["beta"]) for row in normalized]
+                output = self._restore_rows(self.Math.array(result, self._backend), shape)
+                cache, linear = {"shape": shape, "normalized": normalized, "inverses": inverses}, None
+            elif kind == "residual_start":
+                residuals.append(output)
+                cache, linear = {}, None
+            elif kind == "residual_end":
+                skip = residuals.pop()
+                if self.Math.shape(skip) != shape:
+                    raise ValueError("residual input and output shapes must match")
+                output = self.Math.add(output, skip)
+                cache, linear = {}, None
             elif kind == "attention":
                 sequences = [output] if len(shape) == 2 else [output[k] for k in range(shape[0])]
                 results, caches = [], []
-                for x in sequences:
+                for sequence_index, x in enumerate(sequences):
                     q = self.Math.matmul(x, layer["Wq"])
                     k = self.Math.matmul(x, layer["Wk"])
                     v = self.Math.matmul(x, layer["Wv"])
                     scores = self.Math.div(self.Math.matmul(q, self.Math.transpose(k)), math.sqrt(layer["key_size"]))
-                    if layer["causal"]:
-                        scores = self.Math.tolist(scores)
-                        for row, values in enumerate(scores):
-                            for column in range(row + 1, len(values)):
-                                values[column] = -math.inf
-                        scores = self.Math.array(scores, self._backend)
-                    probabilities = self.Activations.softmax(scores)
+                    probabilities = self._attention_probabilities(scores, layer["causal"], None if masks is None else masks[sequence_index])
                     results.append(self.Math.matmul(probabilities, v))
                     caches.append((x, q, k, v, probabilities))
+                output = results[0] if len(shape) == 2 else self.Math.array(results, self._backend)
+                cache, linear = {"sequences": caches, "shape": shape}, None
+            elif kind == "multihead_attention":
+                sequences = [output] if len(shape) == 2 else [output[k] for k in range(shape[0])]
+                width = layer["embedding_size"] // layer["num_heads"]
+                results, caches = [], []
+                for sequence_index, x in enumerate(sequences):
+                    projections = [self.Math.tolist(self.Math.matmul(x, layer[name])) for name in ("Wq", "Wk", "Wv")]
+                    head_outputs, head_caches = [], []
+                    for head in range(layer["num_heads"]):
+                        start = head * width
+                        q, k, v = [self.Math.array([row[start:start + width] for row in projection], self._backend) for projection in projections]
+                        scores = self.Math.div(self.Math.matmul(q, self.Math.transpose(k)), math.sqrt(width))
+                        probabilities = self._attention_probabilities(scores, layer["causal"], None if masks is None else masks[sequence_index])
+                        head_outputs.append(self.Math.tolist(self.Math.matmul(probabilities, v)))
+                        head_caches.append((q, k, v, probabilities))
+                    combined = self.Math.array([[value for head in head_outputs for value in head[row]] for row in range(shape[-2])], self._backend)
+                    results.append(self.Math.matmul(combined, layer["Wo"]))
+                    caches.append((x, combined, head_caches))
                 output = results[0] if len(shape) == 2 else self.Math.array(results, self._backend)
                 cache, linear = {"sequences": caches, "shape": shape}, None
             else:
@@ -743,6 +917,7 @@ class Neurality:
                 and self.Math.tolist(self.layer_inputs[0]) == self.Math.tolist(self.data)):
             self.target = self.Math.array(target, self._backend)
         parameters = []
+        residual_gradients = []
         for i in reversed(range(len(self.layers))):
             layer, cache = self.layers[i], self._caches[i]
             if layer["type"] == "dense":
@@ -767,6 +942,58 @@ class Neurality:
                 for j, neuron in enumerate(neurons):
                     parameters.append(((i, j, "w"), neuron, "w", self.Math.column(dw, j)))
                     parameters.append(((i, j, "b"), neuron, "b", sum(self.Math.column(delta, j))))
+            elif layer["type"] == "residual_end":
+                residual_gradients.append(gradient)
+            elif layer["type"] == "residual_start":
+                gradient = self.Math.add(gradient, residual_gradients.pop())
+            elif layer["type"] == "positional_embedding":
+                shape = cache["shape"]
+                sequences = [self.Math.tolist(gradient)] if len(shape) == 2 else self.Math.tolist(gradient)
+                dw = [[0.0] * layer["embedding_size"] for _ in range(layer["max_length"])]
+                for sequence in sequences:
+                    for pos, row in enumerate(sequence):
+                        dw[pos] = self.Math.add(dw[pos], row)
+                parameters.append(((i, "weights"), layer, "weights", self.Math.array(dw, self._backend)))
+            elif layer["type"] == "norm":
+                rows = self.Math.tolist(self.Math.rows(gradient))
+                gamma = self.Math.tolist(layer["gamma"])
+                width = layer["embedding_size"]
+                dgamma, dbeta = [0.0] * width, [0.0] * width
+                inputs = []
+                for dy, xhat, inverse in zip(rows, cache["normalized"], cache["inverses"]):
+                    scaled = [d * g for d, g in zip(dy, gamma)]
+                    avg = sum(scaled) / width
+                    avg_x = sum(d * x for d, x in zip(scaled, xhat)) / width
+                    inputs.append([inverse * (d - avg - x * avg_x) for d, x in zip(scaled, xhat)])
+                    dgamma = [a + d * x for a, d, x in zip(dgamma, dy, xhat)]
+                    dbeta = [a + d for a, d in zip(dbeta, dy)]
+                gradient = self._restore_rows(self.Math.array(inputs, self._backend), cache["shape"])
+                for name, value in (("gamma", dgamma), ("beta", dbeta)):
+                    parameters.append(((i, name), layer, name, self.Math.array(value, self._backend)))
+            elif layer["type"] == "multihead_attention":
+                sequence_gradients = [gradient] if len(cache["shape"]) == 2 else [gradient[k] for k in range(cache["shape"][0])]
+                accumulated = {name: self.Math.mul(layer[name], 0) for name in self._parameter_names(layer)}
+                width = layer["embedding_size"] // layer["num_heads"]
+                inputs = []
+                for (x, combined, heads), dy in zip(cache["sequences"], sequence_gradients):
+                    accumulated["Wo"] = self.Math.add(accumulated["Wo"], self.Math.matmul(self.Math.transpose(combined), dy))
+                    dcombined = self.Math.tolist(self.Math.matmul(dy, self.Math.transpose(layer["Wo"])))
+                    head_derivatives = []
+                    for head, (q, k, v, probabilities) in enumerate(heads):
+                        dh = self.Math.array([row[head * width:(head + 1) * width] for row in dcombined], self._backend)
+                        dv = self.Math.matmul(self.Math.transpose(probabilities), dh)
+                        dp = self.Math.matmul(dh, self.Math.transpose(v))
+                        ds = self.Math.div(self.Math.array(self._softmax_product(self.Math.tolist(probabilities), self.Math.tolist(dp)), self._backend), math.sqrt(width))
+                        head_derivatives.append([self.Math.tolist(value) for value in (self.Math.matmul(ds, k), self.Math.matmul(self.Math.transpose(ds), q), dv)])
+                    dx = self.Math.mul(x, 0)
+                    for index, name in enumerate(("Wq", "Wk", "Wv")):
+                        projected = self.Math.array([[value for head in head_derivatives for value in head[index][row]] for row in range(len(dcombined))], self._backend)
+                        accumulated[name] = self.Math.add(accumulated[name], self.Math.matmul(self.Math.transpose(x), projected))
+                        dx = self.Math.add(dx, self.Math.matmul(projected, self.Math.transpose(layer[name])))
+                    inputs.append(dx)
+                for name, value in accumulated.items():
+                    parameters.append(((i, name), layer, name, value))
+                gradient = inputs[0] if len(cache["shape"]) == 2 else self.Math.array(inputs, self._backend)
             elif layer["type"] == "attention":
                 sequence_gradients = [gradient] if len(cache["shape"]) == 2 else [gradient[k] for k in range(cache["shape"][0])]
                 accumulated = {name: self.Math.mul(layer[name], 0) for name in self._parameter_names(layer)}
@@ -794,6 +1021,23 @@ class Neurality:
                 parameters.append(((i, "weights"), layer, "weights", self.Math.array(dw, self._backend)))
         self._optimizer.step(parameters, learning_rate=learning_rate)
         return self
+
+    @staticmethod
+    def _attention_probabilities(scores, causal, mask):
+        rows = Neurality.Math.tolist(scores)
+        result = []
+        for row_index, row in enumerate(rows):
+            allowed = [j for j in range(len(row)) if (mask is None or mask[j]) and (not causal or j <= row_index)]
+            if not allowed:
+                result.append([0.0] * len(row))
+                continue
+            high = max(row[j] for j in allowed)
+            allowed = set(allowed)
+            values = [math.exp(row[j] - high) if j in allowed else 0.0 for j in range(len(row))]
+            total = sum(values)
+            result.append([value / total for value in values])
+        backend = Neurality.Backends.NUMPY if Neurality.Math.is_numpy(scores) else Neurality.Backends.PYTHON
+        return Neurality.Math.array(result, backend)
 
     @staticmethod
     def _softmax_product(probabilities, gradients):
