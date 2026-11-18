@@ -131,12 +131,15 @@ weights without Adam moments does not reproduce uninterrupted training exactly.
 
 ## Backend interoperability and resumed training
 
-A NumPy-saved model can be loaded with pure Python and vice versa. Because the file does not
+A NumPy-saved model can be loaded with native Python and vice versa. Because the file does not
 preserve a backend preference, pass it explicitly:
 
 ```python
 loaded = N.load("model.json", backend=N.Backends.PYTHON)
 ```
+
+See [backends](backends.md#serialization-and-portability) for the representation and parity
+details behind cross-backend loading.
 
 To continue training after loading:
 

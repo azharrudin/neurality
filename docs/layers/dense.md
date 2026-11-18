@@ -111,7 +111,7 @@ layer.
 ### Softmax handling
 
 A softmax activation couples all classes in a row, so the dense layer does not multiply by a
-diagonal derivative. Backward uses the Jacobian–vector product. Let $P = \operatorname{softmax}(Z)$
+diagonal derivative. Backward uses the Jacobian–vector product. Let $P = \mathrm{softmax}(Z)$
 and let $g$ be one row of the incoming gradient $dA$. Then
 
 $$

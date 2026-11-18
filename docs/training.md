@@ -190,7 +190,8 @@ numerical comparison, construct one model and convert or load its parameters on 
 backend.
 
 Switching with `model.backend(...)` resets optimizer state and clears caches, even when
-reselecting a backend; avoid doing it inside the training loop.
+reselecting a backend; avoid doing it inside the training loop. See
+[backends](backends.md#switching-backends-at-runtime) for conversion details.
 
 ## Diagnosing divergence
 

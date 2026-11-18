@@ -117,6 +117,10 @@ the total number of scalar output elements.
 
 ## Backends and the Math adapter
 
+Neurality supports two interchangeable backends: the native Python backend (nested lists,
+standard library only) and the NumPy backend (floating-point arrays). The full comparison,
+selection rules, runtime conversion, and parity notes are in [backends](backends.md).
+
 `N.Math` provides a small common interface over nested Python lists and NumPy arrays:
 
 | Operation | Role |

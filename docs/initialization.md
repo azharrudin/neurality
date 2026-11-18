@@ -123,7 +123,8 @@ than reinitializing it.
 
 `N.Math.randn()` follows the global `Neurality._default_backend`, not the backend of a
 particular model. Built-in initializers passed to `dense()` are special-cased to use the model's
-backend. Custom initializers choose their own source of randomness.
+backend. Custom initializers choose their own source of randomness. See
+[backends](backends.md#randomness-and-initialization) for the full backend comparison.
 
 ## Related guides
 

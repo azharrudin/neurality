@@ -134,13 +134,13 @@ model.residual_end()
 The first block computes
 
 $$
-y_1 = \operatorname{MHA}(\operatorname{LN}(x)) + x,
+y_1 = \mathrm{MHA}(\mathrm{LN}(x)) + x,
 $$
 
 and the second computes
 
 $$
-y_2 = \operatorname{FFN}(\operatorname{LN}(y_1)) + y_1.
+y_2 = \mathrm{FFN}(\mathrm{LN}(y_1)) + y_1.
 $$
 
 A final normalization and vocabulary projection produce token probabilities. See the

@@ -19,8 +19,8 @@ inference graph, and no branching syntax beyond residual start/end markers.
 | [Dense](dense.md) | `dense` | $f(XW + \mathbf{1}b^\top)$ | $C$ | One $w$ and $b$ per neuron |
 | [Embedding](embedding.md) | `embedding` | $E[x]$ | $D$ | Table $E \in \mathbb{R}^{V \times D}$ |
 | [Positional embedding](positional-embedding.md) | `positional_embedding` | $h_t + P_t$ | unchanged | Table $P \in \mathbb{R}^{L_{\max} \times D}$ |
-| [Attention](attention.md) | `attention` | $\operatorname{softmax}(QK^\top/\sqrt{d_k})V$ | unchanged | $W_Q, W_K, W_V$ |
-| [Multi-head attention](multihead-attention.md) | `multihead_attention` | $\operatorname{Concat}(O_1,\dots,O_H)W_O$ | unchanged | $W_Q, W_K, W_V, W_O$ |
+| [Attention](attention.md) | `attention` | $\mathrm{softmax}(QK^\top/\sqrt{d_k})V$ | unchanged | $W_Q, W_K, W_V$ |
+| [Multi-head attention](multihead-attention.md) | `multihead_attention` | $\mathrm{Concat}(O_1,\dots,O_H)W_O$ | unchanged | $W_Q, W_K, W_V, W_O$ |
 | [Layer normalization](normalization.md) | `norm` | $\gamma \odot \hat{x} + \beta$ | unchanged | $\gamma, \beta$ |
 | [Residual start](residual.md) | `residual_start` | pushes $x$ onto a stack | unchanged | none |
 | [Residual end](residual.md) | `residual_end` | $F(x) + x$ | unchanged | none |

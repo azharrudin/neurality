@@ -94,21 +94,21 @@ vocabulary projection.
 ### The block in equations
 
 Let $x \in \mathbb{R}^{T \times D}$ be the embedded sequence after positional addition, and let
-$\operatorname{LN}$ denote layer normalization over the feature axis. The pre-normalization
+$\mathrm{LN}$ denote layer normalization over the feature axis. The pre-normalization
 attention sublayer computes
 
 $$
-y_1 = x + \operatorname{MHA}\!\left(\operatorname{LN}(x)\right),
+y_1 = x + \mathrm{MHA}\!\left(\mathrm{LN}(x)\right),
 $$
 
 where
 
 $$
-\operatorname{MHA}(\cdot) = \left[\,
-O_1 \;\middle|\; \cdots \;\middle|\; O_H
+\mathrm{MHA}(\cdot) = \left[\,
+O_1 \;|\; \cdots \;|\; O_H
 \,\right] W_O,
 \qquad
-O_h = \operatorname{softmax}\!\left(
+O_h = \mathrm{softmax}\!\left(
 \frac{Q_h K_h^\top}{\sqrt{d_h}}
 \right)V_h,
 $$
@@ -117,14 +117,14 @@ and $Q_h, K_h, V_h$ are the head slices of $XW_Q$, $XW_K$, $XW_V$. The feed-forw
 computes
 
 $$
-y_2 = y_1 + W_2\,\operatorname{GELU}\!\left(W_1\operatorname{LN}(y_1) + b_1\right) + b_2,
+y_2 = y_1 + W_2\,\mathrm{GELU}\!\left(W_1\mathrm{LN}(y_1) + b_1\right) + b_2,
 $$
 
 with $W_1$ expanding $D \to D_{\text{ff}}$ (here $8 \to 16$) and $W_2$ projecting
 $D_{\text{ff}} \to D$. Finally, the output head is
 
 $$
-p = \operatorname{softmax}\!\left(\operatorname{LN}(y_2)\,W_{\text{vocab}} + b_{\text{vocab}}\right),
+p = \mathrm{softmax}\!\left(\mathrm{LN}(y_2)\,W_{\text{vocab}} + b_{\text{vocab}}\right),
 $$
 
 where $W_{\text{vocab}}$ is the dense vocabulary projection and $p \in \mathbb{R}^{T \times V}$.

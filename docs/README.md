@@ -10,6 +10,7 @@ These guides describe the implementation in [`lib/neurality.py`](../lib/neuralit
 | Guide | What it explains |
 |---|---|
 | [Architecture and execution](architecture.md) | How a model is represented, how tensors flow, how backward updates parameters |
+| [Backends](backends.md) | NumPy vs native Python: representation, selection, conversion, parity, performance |
 | [API reference](api.md) | Constructor and method signatures, defaults, shapes, validation rules |
 | [Initialization](initialization.md) | Weight initialization strategies and layer-specific defaults |
 

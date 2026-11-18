@@ -31,6 +31,9 @@ model = N(backend="python")        # enum value also accepted
 model.backend(N.Backends.NUMPY)
 ```
 
+See [backends](backends.md) for the native-Python and NumPy execution models, runtime
+conversion rules, and numerical differences.
+
 `N.backends` is an alias of `N.Backends`. The constructor and instance method accept the enum
 or its string values `"python"` and `"numpy"`.
 

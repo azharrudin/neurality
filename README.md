@@ -174,7 +174,7 @@ Single-head self-attention with key width $d_k$ computes
 $$
 Q = XW_Q,\quad K = XW_K,\quad V = XW_V,
 \qquad
-\operatorname{Attention}(X) = \operatorname{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V.
+\mathrm{Attention}(X) = \mathrm{softmax}\!\left(\frac{QK^\top}{\sqrt{d_k}}\right)V.
 $$
 
 The training objective is minimized by gradient descent. Every optimizer applies an update of
@@ -198,6 +198,7 @@ Start with the [documentation index](docs/README.md).
 | Guide | Contents |
 |---|---|
 | [Architecture](docs/architecture.md) | Internal representation, forward/backward mechanics, tensor shapes, caches, backends |
+| [Backends](docs/backends.md) | NumPy vs native Python: selection, representation, runtime switching, parity, performance |
 | [Layer guides](docs/layers/README.md) | One page per layer: dense, embeddings, attention, normalization, residuals |
 | [Dense layer](docs/layers/dense.md) | Construction, forward equation, weight layout, softmax handling, gradients |
 | [Token embeddings](docs/layers/embedding.md) | Lookup tables, index validation, gradient accumulation |

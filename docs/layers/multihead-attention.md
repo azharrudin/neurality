@@ -77,7 +77,7 @@ S_h = \frac{Q_h K_h^\top}{\sqrt{d_h}} \in \mathbb{R}^{T \times T},
 $$
 
 $$
-P_h = \operatorname{softmax}_{\mathcal{A}}(S_h),
+P_h = \mathrm{softmax}_{\mathcal{A}}(S_h),
 \qquad
 O_h = P_h V_h \in \mathbb{R}^{T \times d_h}.
 $$
@@ -89,7 +89,7 @@ empty allowed set produces a zero row.
 Head outputs are concatenated along the feature axis:
 
 $$
-C = \left[\,O_1 \;\middle|\; O_2 \;\middle|\; \cdots \;\middle|\; O_H\,\right]
+C = \left[\,O_1 \;|\; O_2 \;|\; \cdots \;|\; O_H\,\right]
 \in \mathbb{R}^{T \times D}.
 $$
 

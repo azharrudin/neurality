@@ -79,13 +79,13 @@ arbitrary datasets.
 | Symptom | Cause and remedy |
 |---|---|
 | `ModuleNotFoundError: lib` | Run standalone examples from the repository root. For notebooks, use the documented working directory and import path. |
-| NumPy import error during `N()` | NumPy is the default backend. Install it or construct `N(backend=N.Backends.PYTHON)` directly. |
+| NumPy import error during `N()` | NumPy is the default backend. Install it or construct `N(backend=N.Backends.PYTHON)` directly. See [backends](backends.md). |
 | Missing `neurality.Backends` or `neurality.Optimizers` | Import the class as `N` and use `N.Backends` / `N.Optimizers`; these are nested classes. |
 | `Call forward before backward` | Run forward first; backend conversion also clears the required cache. |
 | Incorrect training after validation | Validation replaced the training cache. Put validation after the update, or rerun the training forward. |
 | Input-shape or matrix multiplication error | For non-default widths, call `fit()` before dense construction; preserve input width, and distinguish $(B,D)$ from $(B,T,D)$. |
 | Target/gradient shape error | Match output shape; CCE needs one-hot/distribution targets. Custom callbacks receive flattened rows. |
-| Inconsistent results across backends | Check exact target shapes and NumPy broadcasting; compare identical parameters with floating-point tolerance. |
+| Inconsistent results across backends | Check exact target shapes and NumPy broadcasting; compare identical parameters with floating-point tolerance. See [backends](backends.md#numerical-behavior-and-parity). |
 | Invalid token ID | Use integral IDs in $[0,V)$, with the same tokenizer mapping used during training. |
 | Invalid head count | Choose a positive head count that divides the feature width. |
 | Sequence exceeds positional capacity | Shorten/window the sequence or construct and train a model with a larger capacity. |

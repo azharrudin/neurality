@@ -72,7 +72,7 @@ Neurality uses the tanh approximation of the Gaussian Error Linear Unit, the var
 GPT-1:
 
 $$
-\operatorname{GELU}(z)
+\mathrm{GELU}(z)
 = \frac{1}{2}z\left(1+\tanh\!\left(\sqrt{\frac{2}{\pi}}\left(z+0.044715z^3\right)\right)\right).
 $$
 
@@ -85,7 +85,7 @@ $$
 Then the derivative implemented by `deriv_gelu` is
 
 $$
-\frac{d}{dz}\operatorname{GELU}(z)
+\frac{d}{dz}\mathrm{GELU}(z)
 = \frac{1}{2}(1+t)
 + \frac{1}{2}z\,(1-t^2)\sqrt{\frac{2}{\pi}}\left(1+3\cdot 0.044715\,z^2\right).
 $$

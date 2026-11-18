@@ -69,7 +69,7 @@ $$
 Before evaluating the logarithm, probabilities are clipped to
 
 $$
-p_i \leftarrow \operatorname{clip}\left(p_i,\ 10^{-8},\ 1-10^{-8}\right).
+p_i \leftarrow \mathrm{clip}\left(p_i,\ 10^{-8},\ 1-10^{-8}\right).
 $$
 
 The gradient uses the same clipped values:
@@ -130,7 +130,7 @@ dZ_{rj}
 = \frac{P_{rj}\sum_{k=1}^{C}Y_{rk} - Y_{rj}}{R},
 $$
 
-where $P = \operatorname{softmax}(Z)$. For a normalized target row,
+where $P = \mathrm{softmax}(Z)$. For a normalized target row,
 $\sum_k Y_{rk} = 1$, so
 
 $$
