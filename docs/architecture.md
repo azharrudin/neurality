@@ -1,135 +1,306 @@
-# Architecture and mathematics
+# Architecture and execution
 
-[Documentation index](README.md)
+[Documentation index](README.md) · [API reference](api.md) · [Layer guides](layers/README.md)
+
+This guide follows one training step through the library: how a model stores its layers, how a
+forward pass turns input into predictions, how backward pass turns a loss gradient into
+parameter gradients, and how the optimizer applies them.
 
 ## Code organization
 
-The library lives in one file, `lib/neurality.py`. `Neurality` contains nested classes for `Math`, `Backends`, `Activations`, `Derivations`, `Initializations`, `Loss`, `Gradients`, and `Optimizers`.
+The entire library lives in [`lib/neurality.py`](../lib/neurality.py). `Neurality` is a single
+class containing nested namespaces:
 
-`model.layers` is the ordered execution plan. Each layer is a dictionary containing its `type`, configuration, and parameters. `model.perceptrons` contains only dense neuron lists, so it does not describe the complete architecture of a sequence model. A dense neuron stores its weight vector `w`, scalar bias `b`, activation `f`, derivative `df`, and identifier `id`.
+| Namespace | Purpose |
+|---|---|
+| `N.Backends` | `PYTHON` and `NUMPY` enum values |
+| `N.Math` | Shape checks, array conversion, elementwise operations, matrix multiplication, reshaping |
+| `N.Activations` | Forward activation functions |
+| `N.Derivations` | Derivatives of the built-in activations |
+| `N.Initializations` | Weight initializers |
+| `N.Loss` | Reporting losses |
+| `N.Gradients` | Gradients with respect to model output |
+| `N.Optimizers` | SGD, Momentum, RMSprop, Adam |
 
-The `Math` adapter provides shape checks, conversions, elementwise operations, matrix multiplication, and reshaping. Pure Python uses nested lists; NumPy uses floating-point arrays. Some NumPy paths still execute Python loops, so the backend does not imply that every operation is vectorized.
+There is no module-level `neurality.Backends` or `neurality.Optimizers`. Import the class and
+use the nested attributes.
+
+## Model representation
+
+A model has two views of its architecture:
+
+- `model.layers` is the ordered execution plan. Every layer is a dictionary with a `type`,
+  its configuration, and its parameters. The list is the source of truth for forward and
+  backward passes.
+- `model.perceptrons` contains only dense neuron lists. It exists because dense layers store
+  their parameters per neuron. Sequence models cannot be described from this attribute alone;
+  use `model.layers` when inspecting them.
+
+A dense neuron stores:
+
+```python
+{
+    "w": [...],   # one weight vector of length fan_in
+    "b": 0.0,     # finite scalar bias
+    "f": ...,     # activation callable
+    "df": ...,    # derivative callable, evaluated on preactivations
+    "id": "P-0-3"
+}
+```
+
+Dense layer parameters are stored per neuron and stacked into a matrix only when a forward or
+backward pass needs one. Sequence-layer parameters (`weights`, `Wq`, `Wk`, `Wv`, `Wo`, `gamma`,
+`beta`) are stored directly on the layer dictionary.
+
+`model.layers` is built in insertion order. There is no graph compiler, no topological sort,
+and no implicit branching: execution follows the list from start to end, with the residual stack
+handling skip connections.
+
+## End-to-end data flow
 
 ```mermaid
 flowchart LR
     X[Input batch] --> F[Forward through layers]
     F --> P[Predictions and cache]
-    P --> L[Loss for reporting]
+    P --> L[Reporting loss]
     Y[Targets] --> L
-    P --> G[Loss gradient]
+    P --> G[Loss gradient function]
     Y --> G
     G --> B[Backward through layers]
     B --> O[Optimizer updates parameters]
+    O --> N[Next forward starts a new cache]
 ```
 
-The reporting loss and gradient function are separate calls. `backward()` computes gradients and immediately updates parameters; it is not a gradient-accumulation-only API.
+The reporting loss and the gradient function are separate calls. `forward()` never computes a
+loss, and `backward()` never returns one. A typical iteration is
 
-## Dense layers
-
-For `X` of shape `(R,D)`, conceptual weights `W` of shape `(D,C)`, and bias `b` of shape `(C,)`:
-
-```text
-Z = X W + b
-A = f(Z)
-dZ = dA ⊙ f'(Z)
-dW = Xᵀ dZ
-db = sum_rows(dZ)
-dX = dZ Wᵀ
+```python
+prediction = model.forward(batch)
+loss = N.Loss.loss_bce(prediction, targets)      # reporting only
+model.backward(targets, N.Gradients.gradient_bce)  # gradients + update
 ```
 
-The implementation stores one vector per output neuron and stacks those vectors as columns for matrix operations. For sequence tensors, it flattens the leading dimensions into rows and restores them afterward. Parameters are shared across sequence positions.
+`backward()` computes gradients and immediately updates parameters. It does not accumulate
+gradients across calls, so each update needs a fresh forward pass.
 
-### Activations
+## Tensor conventions
 
-| Activation | Definition |
+Forward accepts a 1D vector, a 2D matrix, or a 3D batch of sequences:
+
+| Input | Interpretation |
 |---|---|
-| Linear | `x` |
-| ReLU | `max(0,x)` |
-| Leaky ReLU | `x` for positive inputs, otherwise `0.01*x` |
-| Sigmoid | `1/(1+exp(-x))`, evaluated using a stable sign-dependent form |
-| Tanh | `tanh(x)` |
-| GELU | `0.5*x*(1+tanh(sqrt(2/pi)*(x+0.044715*x³)))` |
-| Softmax | `exp(z_i-max(z)) / sum_j exp(z_j-max(z))` per row |
+| $(D,)$ | One sample; promoted to $(1,D)$ |
+| $(B,D)$ | Batch of $B$ samples |
+| $(B,T,D)$ | Batch of $B$ sequences of length $T$ |
 
-GELU and its derivative use the tanh approximation. Softmax has Jacobian `J_ij = p_i*(δ_ij-p_j)`. Backward includes cross-class interactions, rather than multiplying only by the Jacobian diagonal. For a gradient vector `g`, the Jacobian product is `p ⊙ (g - sum(p ⊙ g))`.
+For non-embedding models, the last dimension must equal `model.INPUT_SIZE`. For embedding
+models, the input contains token IDs and must be 2D: $(T,)$ is promoted to $(1,T)$, and
+$(B,T)$ is a batch of sequences.
 
-## Losses and gradient scaling
+Internally, dense and normalization layers flatten all leading dimensions into a row matrix:
 
-Let `E` be the total number of output elements and `R` the number of output rows after flattening batch/sequence dimensions:
+$$
+R = \prod_{i=1}^{\text{rank}-1} \text{shape}_i,
+\qquad
+X \in \mathbb{R}^{R \times D}.
+$$
 
-```text
-MSE = sum((p-y)²) / E
-BCE = -sum(y*log(p) + (1-y)*log(1-p)) / E
-CCE = -sum_rows(sum_classes(y*log(p))) / R
-```
+Results are restored to the original leading shape afterward. Parameters are therefore shared
+across batch items and sequence positions.
 
-BCE clips probabilities to `[1e-8,1-1e-8]`; CCE uses `[1e-8,1]` for logarithms and divisions. These bounds stabilize numerical evaluation. Built-in gradients already include averaging factors; parameter gradients must not be divided by the batch size again.
+Attention is the exception: it treats a 2D feature matrix as one sequence and a 3D tensor as a
+batch of independent sequences. Sequence positions interact through the attention matrix, not
+through a row-flattening reshape.
 
-When the final layer uses the built-in softmax and `backward()` receives exactly `N.Gradients.gradient_cce`, the implementation uses the combined derivative:
+The symbol $R$ in the loss and gradient guides always means this flattened row count. $E$ is
+the total number of scalar output elements.
 
-```text
-dZ = (p * sum_classes(y) - y) / R
-```
+## Backends and the Math adapter
 
-For normalized target distributions, this reduces to `(p-y)/R`. Passing a wrapper around `gradient_cce` uses the general softmax path instead.
+`N.Math` provides a small common interface over nested Python lists and NumPy arrays:
 
-## Token and positional embeddings
-
-Token embeddings form a trainable table `(V,D)`. Index lookup maps `(B,T)` IDs to `(B,T,D)` features. Backward adds contributions from every occurrence of a token to the same table row. There is no gradient with respect to discrete token IDs.
-
-Learned positional embeddings form a table `(max_length,D)`. The position vector is added to each token feature vector. Gradients at the same position are summed over the batch. Every forward call numbers positions from zero; there is no position-offset argument.
-
-## Self-attention
-
-For one sequence `X` of shape `(T,D)` and key width `K`:
-
-```text
-Q = X Wq                  Wq: (D,K)
-Kmat = X Wk               Wk: (D,K)
-Vmat = X Wv               Wv: (D,D)
-S = Q Kmatᵀ / sqrt(K)     S: (T,T)
-P = masked_softmax(S)
-O = P Vmat                O: (T,D)
-```
-
-Single-head attention has no separate output projection. Multi-head attention learns four `(D,D)` matrices: `Wq`, `Wk`, `Wv`, and `Wo`. Q/K/V are split into `H` heads of width `D/H`; each head uses scale `sqrt(D/H)`. Head outputs are concatenated and multiplied by `Wo`.
-
-In backward, `dV = Pᵀ dO` and `dP = dO Vᵀ`. The softmax Jacobian product gives score gradients, including the attention scale. Query/key gradients then produce projection gradients and input gradients. Multi-head backward also differentiates the output projection and joins the head gradients. Projection gradients accumulate across sequences before the optimizer step.
-
-Scores and probabilities have quadratic sequence dimensions. Multi-head score storage grows on the order of `B*H*T²`; long contexts can be expensive even for small embedding widths.
-
-## Layer normalization
-
-For each sample or token, normalization operates along the final feature dimension:
-
-```text
-mean = sum(x) / D
-variance = sum((x-mean)²) / D
-xhat = (x-mean) / sqrt(variance+epsilon)
-y = gamma ⊙ xhat + beta
-```
-
-`gamma` starts at one and `beta` at zero. Both are trainable. Variance uses divisor `D`, not a sample-variance correction. No running statistics or separate inference mode are needed.
-
-## Residual connections
-
-`residual_start()` pushes its input onto a stack. `residual_end()` pops the corresponding value and adds it to the branch output. Nested pairs are supported. Full tensor shapes must agree.
-
-Backward sends the output gradient along both the branch and the identity path. At the start of the residual region, the two contributions are added. Residual markers have no trainable parameters.
-
-## Optimizer equations
-
-For gradient `g`, learning rate `η`, and parameter `θ`:
-
-| Optimizer | Update direction |
+| Operation | Role |
 |---|---|
-| SGD | `g` |
-| Momentum | `v = momentum*v + g` |
-| RMSprop | `s = rho*s + (1-rho)*g²`; direction `g/(sqrt(s)+epsilon)` |
-| Adam | First and second exponential moments, corrected by `1-beta1^step` and `1-beta2^step`; direction `mhat/(sqrt(vhat)+epsilon)` |
+| `shape`, `flatten`, `tolist` | Inspect and convert values |
+| `array(value, backend)` | Copy into the selected representation |
+| `reshape`, `rows` | Flatten leading dimensions and restore them |
+| `matmul`, `transpose` | Matrix operations |
+| `add`, `sub`, `mul`, `div`, `square`, `sqrt` | Elementwise operations |
+| `unary`, `binary` | Apply scalar functions recursively |
+| `mean`, `finite` | Reduction and validation |
 
-Every update applies `θ = θ - η*direction`. All parameter gradients are collected before the optimizer updates weights. Adam increments its step counter once per backward update, rather than once per parameter.
+The adapter is not a complete NumPy replacement. In particular, NumPy broadcasts operands
+while the pure-Python path raises on unequal list shapes. Supply targets with exact shapes and
+expect small floating-point differences.
+
+Pure Python uses nested lists and the standard library `random` generator. NumPy uses
+floating-point arrays and `numpy.random`. Some NumPy code paths still loop in Python, so
+selecting NumPy does not guarantee vectorized execution of every operation.
+
+Choose the backend explicitly when NumPy may be absent:
+
+```python
+model = N(backend=N.Backends.PYTHON)
+```
+
+`N()` tries to import NumPy immediately. Calling `model.backend(...)` afterward cannot rescue a
+model that failed to construct.
+
+## Forward pass
+
+`forward(data, padding_mask=None)` performs these steps:
+
+1. Convert input to the model backend and promote a 1D vector to a 2D batch.
+2. Validate rank, non-emptiness, finiteness, and feature width (or token-ID rank for embedding
+   models).
+3. Validate `padding_mask` if supplied.
+4. Reset `layer_inputs`, `layer_linear`, and `_caches`.
+5. Execute each layer in `model.layers`, appending its input, linear cache, and layer-specific
+   cache.
+6. Store the result in `model.output` and return it.
+
+Each layer's forward map has the general form
+
+$$
+a^{(l)} = F_l\!\left(a^{(l-1)}\right),
+$$
+
+where $a^{(0)}$ is the input batch. Most layers preserve the leading shape $(B,T)$ and
+transform only the feature axis; dense layers may change $D$ to $C$.
+
+The forward pass also records everything backward needs: dense preactivations, token IDs,
+normalization statistics, attention probabilities, and residual boundaries. A later forward call
+replaces all of it.
+
+## Backward pass
+
+`backward(target, gradient_function, learning_rate=None)` starts from the gradient of the loss
+with respect to the model output. Let $p$ be the prediction and $y$ the target. The supplied
+function represents
+
+$$
+dA_{\text{out}} = \frac{\partial L}{\partial p},
+$$
+
+not the gradient with respect to logits. It receives flattened rows of shape $(R,C)$ and must
+return the same shape. Built-in gradient functions already include the loss reduction factor.
+
+Backward then applies the chain rule from the last layer to the first:
+
+$$
+dA^{(l-1)} = \left(\frac{\partial a^{(l)}}{\partial a^{(l-1)}}\right)^\top dA^{(l)}.
+$$
+
+For a layer with parameters $\theta_l$, the pass accumulates
+
+$$
+d\theta_l = \frac{\partial L}{\partial \theta_l}
+$$
+
+and appends `(key, layer_or_neuron, field, gradient)` entries to a parameter list. After the
+whole reverse traversal, the optimizer applies every entry. Gradients are not exposed through a
+public API and are not accumulated between calls.
+
+Layer-specific backward rules are documented on each layer page:
+
+- [Dense](layers/dense.md)
+- [Embedding](layers/embedding.md)
+- [Positional embedding](layers/positional-embedding.md)
+- [Attention](layers/attention.md)
+- [Multi-head attention](layers/multihead-attention.md)
+- [Layer normalization](layers/normalization.md)
+- [Residual connections](layers/residual.md)
+
+### Residual routing
+
+`residual_start()` pushes its input tensor onto a stack. `residual_end()` pops the
+corresponding tensor and adds it to the branch output:
+
+$$
+y = F(x) + x.
+$$
+
+Backward sends the output gradient along both paths. At the matching `residual_start`, the
+branch gradient and the identity gradient are added:
+
+$$
+dx = dF + dy.
+$$
+
+Nested pairs use the same stack. Feature widths at construction and complete tensor shapes at
+forward time must match. Residual markers have no trainable parameters.
+
+## Optimizer step
+
+After backward has collected all parameter gradients, the optimizer iterates over them and
+updates each parameter in place:
+
+$$
+\theta \leftarrow \theta - \eta\, u(g),
+$$
+
+where $g$ is the parameter gradient, $\eta$ the learning rate, and $u$ the optimizer-specific
+direction. All gradients are computed from the same forward pass before any parameter changes,
+so the update is a genuine gradient step rather than a mixture of old and new parameters.
+
+`backward(..., learning_rate=...)` overrides the rate for that one update only. The model's
+configured optimizer keeps its own rate.
+
+See [optimizers](optimizers.md) for the direction $u$ of each algorithm and the state
+lifecycle.
 
 ## Cache lifecycle
 
-Forward caches include layer inputs, dense preactivations, token indices, normalization statistics, and attention intermediates. A later forward replaces those caches. After an update, run forward again before the next backward step. Switching backend resets optimizer state and clears the forward cache.
+The forward cache lives on the model:
+
+| Attribute | Contents |
+|---|---|
+| `output` | Last prediction |
+| `layer_inputs` | Input tensor at every layer |
+| `layer_linear` | Dense preactivations (or `None`) |
+| `_caches` | Layer-specific intermediates used by backward |
+
+Rules that follow from this design:
+
+- Call `forward()` before `backward()`. Otherwise backward raises `Call forward before backward`.
+- Do not run a validation or inference forward between a training forward and its backward.
+  The second forward overwrites the cache used by the update.
+- After an optimizer update, run forward again before the next backward.
+- `model.backend(...)` clears `output`, `layer_inputs`, `layer_linear`, and `_caches`, and resets
+  optimizer state. Avoid switching backends inside a training loop.
+- `model.optimizer(...)` resets accumulated moments and step counters but does not clear the
+  forward cache.
+
+## Validation layers
+
+Validation happens at several points rather than in a separate schema layer:
+
+| Stage | Examples of checks |
+|---|---|
+| Construction | Positive layer sizes, callable activation/initializer, finite bias, matching residual widths, head count divides width, valid epsilon |
+| `fit()` | Rank 2 or 3, non-empty, finite data |
+| `forward()` | Rank and feature width, finite data, integral token IDs in range, mask shape and binary values, positional capacity, residual shape equality |
+| `backward()` | Forward cache exists, target element count matches output, gradient callback returns the output shape |
+| `save()` | Balanced residual pairs, serializable activations, round-trip through the loader, finite JSON values |
+| `load()` | Format/version, positive input width, supported layer types, parameter shapes and finite values, configuration consistency |
+
+Errors are raised as `ValueError` (or `TypeError` for wrong argument kinds). The loader wraps
+malformed structures with an `Invalid Neurality model file` prefix.
+
+## Memory and complexity
+
+Dense layers cost $O(RDC)$ time and $O(RD + RC)$ memory for the forward cache. Attention is
+quadratic in sequence length:
+
+- Single-head scores: $O(T^2)$.
+- Multi-head scores: $O(BHT^2)$ across a batch.
+- Backward keeps probabilities, queries, keys, and values for every sequence.
+
+Long contexts can therefore dominate both time and memory even when $D$ is small. There is no
+chunked attention, sparse attention, or KV cache.
+
+## Related guides
+
+- [API reference](api.md) for exact signatures and defaults
+- [Training and evaluation](training.md) for loops and cache discipline in practice
+- [Serialization](serialization.md) for what a saved model does and does not contain

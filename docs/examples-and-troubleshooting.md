@@ -1,10 +1,12 @@
 # Examples, testing, and troubleshooting
 
-[Documentation index](README.md)
+[Documentation index](README.md) · [Training](training.md) · [Transformer guide](transformer.md) ·
+[API reference](api.md)
 
 ## Running notebooks
 
-The library's pure Python backend needs only the standard library. Notebook tooling and preprocessing have additional dependencies. From the repository root:
+The pure-Python backend needs only the standard library. Notebook tooling and preprocessing have
+additional dependencies. From the repository root:
 
 ```sh
 python -m pip install numpy pandas scikit-learn matplotlib jupyterlab
@@ -12,23 +14,45 @@ cd examples/titanic_survivor
 python -m jupyterlab
 ```
 
-The Titanic notebooks import from `../../lib` and read local filenames. Their working directory must be `examples/titanic_survivor`. For the Transformer notebook, launch Jupyter from `examples/simple_transformer`; its library dependency is NumPy for the default backend, plus Jupyter tooling to run the notebook.
+The Titanic notebooks import from `../../lib` and read local filenames. Their working directory
+must be `examples/titanic_survivor`. For the Transformer notebook, launch Jupyter from
+`examples/simple_transformer`; its library dependency is NumPy for the default backend, plus
+Jupyter tooling to run the notebook.
 
 ### Titanic classification
 
-[training.ipynb](../examples/titanic_survivor/training.ipynb) reads `Titanic-Dataset.csv`, fills missing values, one-hot encodes `Embarked`, standardizes features, builds a dense classifier, trains with BCE, and writes `model.json`. Its layers use tanh, ReLU, and sigmoid.
+[training.ipynb](../examples/titanic_survivor/training.ipynb) reads `Titanic-Dataset.csv`, fills
+missing values, one-hot encodes `Embarked`, standardizes features, builds a dense classifier,
+trains with BCE, and writes `model.json`. Its layers use tanh, ReLU, and sigmoid.
 
-The notebook's reported accuracy is computed on its training data. It is a fitting demonstration, not a held-out performance estimate. For evaluation, split data first and fit imputation, encoding, and scaling only on the training split. Save feature column order, categorical mapping, mean, and standard deviation separately from Neurality's JSON model.
+The notebook's reported accuracy is computed on its training data. It is a fitting
+demonstration, not a held-out performance estimate. For evaluation:
 
-[inference.ipynb](../examples/titanic_survivor/inference.ipynb) loads the saved model and passes a preprocessed seven-feature vector. Raw passenger fields cannot be substituted directly. The vector must use the same feature order and transformations as training. The supplied JSON is an example artifact, not a guarantee of model quality.
+1. split the data before fitting preprocessing;
+2. fit imputation, encoding, and scaling only on the training split;
+3. save feature column order, categorical mapping, mean, and standard deviation separately from
+   Neurality's JSON model.
 
-The training notebook calls NumPy methods such as `.ravel()` on predictions. If adapting it to pure Python, use `np.asarray(prediction).ravel()` or operate on the nested lists directly. `OneHotEncoder(sparse_output=False)` requires a scikit-learn installation exposing that argument.
+[inference.ipynb](../examples/titanic_survivor/inference.ipynb) loads the saved model and passes
+a preprocessed seven-feature vector. Raw passenger fields cannot be substituted directly. The
+vector must use the same feature order and transformations as training. The supplied JSON is an
+example artifact, not a guarantee of model quality.
+
+The training notebook calls NumPy methods such as `.ravel()` on predictions. If adapting it to
+pure Python, use `np.asarray(prediction).ravel()` or operate on the nested lists directly.
+`OneHotEncoder(sparse_output=False)` requires a scikit-learn installation exposing that argument.
 
 ### Simple Transformer
 
-[simple_transformer.ipynb](../examples/simple_transformer/simple_transformer.ipynb) implements a byte-level BPE tokenizer, trains a small causal model on a single paragraph, and generates tokens greedily. Its model uses learned token/position embeddings, multi-head attention, pre-normalization residual blocks, GELU, and vocabulary softmax.
+[simple_transformer.ipynb](../examples/simple_transformer/simple_transformer.ipynb) implements a
+byte-level BPE tokenizer, trains a small causal model on a single paragraph, and generates tokens
+greedily. Its model uses learned token/position embeddings, multi-head attention,
+pre-normalization residual blocks, GELU, and vocabulary softmax.
 
-The tokenizer is notebook code, not a Neurality API. Keep learned merges and vocabulary with any saved model. A one-paragraph fitting exercise does not demonstrate broad language capabilities. Long sequence lengths increase attention work quadratically; start with the short synthetic example in the [Transformer guide](transformer.md).
+The tokenizer is notebook code, not a Neurality API. Keep learned merges and vocabulary with any
+saved model. A one-paragraph fitting exercise does not demonstrate broad language capabilities.
+Long sequence lengths increase attention work quadratically; start with the short synthetic
+example in the [Transformer guide](transformer.md#a-complete-small-language-model).
 
 ## Running the tests
 
@@ -40,12 +64,15 @@ python -m unittest discover -s tests -v
 
 | Test module | Main coverage |
 |---|---|
-| `test_attention.py` | Attention gradients, causal behavior, token learning, backend/optimizer parity, JSON, pure Python operation without NumPy |
+| `test_attention.py` | Attention gradients, causal behavior, token learning, backend/optimizer parity, JSON, pure-Python operation without NumPy |
 | `test_gelu.py` | GELU values, finite-difference derivative, dense backward, serialization |
 | `test_multihead_attention.py` | Multi-head parameter gradients, padding/causal masks, validation, save/load |
 | `test_transformer_components.py` | Position/norm/residual gradients, nested residual validation, backend round trips |
 
-Finite-difference checks compare analytical updates with loss changes under small parameter perturbations. Round-trip tests compare predictions with numerical tolerance. These tests verify implementation behavior; they are not performance benchmarks or evidence of convergence for arbitrary datasets.
+Finite-difference checks compare analytical updates with loss changes under small parameter
+perturbations. Round-trip tests compare predictions with numerical tolerance. These tests verify
+implementation behavior; they are not performance benchmarks or evidence of convergence for
+arbitrary datasets.
 
 ## Common problems
 
@@ -56,10 +83,10 @@ Finite-difference checks compare analytical updates with loss changes under smal
 | Missing `neurality.Backends` or `neurality.Optimizers` | Import the class as `N` and use `N.Backends` / `N.Optimizers`; these are nested classes. |
 | `Call forward before backward` | Run forward first; backend conversion also clears the required cache. |
 | Incorrect training after validation | Validation replaced the training cache. Put validation after the update, or rerun the training forward. |
-| Input-shape or matrix multiplication error | Call `fit()` before dense construction, preserve input width, and distinguish `(B,D)` from `(B,T,D)`. |
+| Input-shape or matrix multiplication error | For non-default widths, call `fit()` before dense construction; preserve input width, and distinguish $(B,D)$ from $(B,T,D)$. |
 | Target/gradient shape error | Match output shape; CCE needs one-hot/distribution targets. Custom callbacks receive flattened rows. |
 | Inconsistent results across backends | Check exact target shapes and NumPy broadcasting; compare identical parameters with floating-point tolerance. |
-| Invalid token ID | Use integral IDs in `[0,V)`, with the same tokenizer mapping used during training. |
+| Invalid token ID | Use integral IDs in $[0,V)$, with the same tokenizer mapping used during training. |
 | Invalid head count | Choose a positive head count that divides the feature width. |
 | Sequence exceeds positional capacity | Shorten/window the sequence or construct and train a model with a larger capacity. |
 | Residual shape or pairing error | Close each start and restore the original feature width before the end. |
@@ -71,6 +98,29 @@ Finite-difference checks compare analytical updates with loss changes under smal
 
 ## Scope and extension points
 
-Neurality is an educational implementation. It has no GPU execution, convolution/recurrent layers, general autodiff graph, built-in trainer, early stopping, tokenizer, dropout, or integrated masked-loss API. Pure Python support does not establish MicroPython or microcontroller compatibility.
+Neurality is an educational implementation. It has no GPU execution, convolution/recurrent
+layers, general autodiff graph, built-in trainer, early stopping, tokenizer, dropout, or
+integrated masked-loss API. Pure Python support does not establish MicroPython or
+microcontroller compatibility.
 
-For custom experiments, use explicit dense activations/derivatives, custom initializers, or probability-gradient callbacks through the existing APIs. Adding a new trainable layer requires coordinated changes to construction, forward, backward, parameter conversion, serialization/loading, and validation. Add numerical gradient and backend round-trip checks for substantive layer changes.
+For custom experiments, use explicit dense activations/derivatives, custom initializers, or
+probability-gradient callbacks through the existing APIs. Adding a new trainable layer requires
+coordinated changes to:
+
+1. construction (builder method and layer dictionary),
+2. forward propagation,
+3. backward propagation,
+4. backend parameter conversion,
+5. serialization and loading,
+6. validation.
+
+Add numerical gradient and backend round-trip checks for substantive layer changes. The
+[architecture guide](architecture.md) describes where each piece lives, and the
+[layer guides](layers/README.md) document the existing implementations.
+
+## Related guides
+
+- [Architecture and execution](architecture.md)
+- [Layer overview](layers/README.md)
+- [Training and evaluation](training.md)
+- [API reference](api.md)
