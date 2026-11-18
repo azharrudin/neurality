@@ -1,15 +1,3 @@
-
-# =============================================================================
-# Neurality — A Lightweight Deep Learning Library
-# =============================================================================
-# A simple, single-file deep learning library 
-# featuring implementations of Dense Layers, Embeddings, and Attention Mechanisms.
-#
-# Designed for simplicity, readability, and educational purposes.
-#
-# Author  : UD!N!UM
-# Version : 0.1.0
-# =============================================================================
 import json
 import math
 import random
