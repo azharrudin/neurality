@@ -103,8 +103,8 @@ Characteristics:
   makes the implementation easy to inspect and debug.
 - **Higher overhead.** Matrix multiplication and repeated elementwise operations run as Python
   loops, so training is slower than with NumPy.
-- **Full feature parity.** Dense layers, embeddings, attention, normalization, residuals,
-  losses, optimizers, masks, and JSON persistence all work.
+- **Full feature parity.** Dense layers, embeddings, attention, normalization, dropout,
+  residuals, losses, optimizers, masks, and JSON persistence all work.
 
 Use the native backend for:
 

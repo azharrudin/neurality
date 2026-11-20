@@ -131,7 +131,9 @@ where $W_{\text{vocab}}$ is the dense vocabulary projection and $p \in \mathbb{R
 Each row is a distribution over the next token.
 
 Neurality has no dedicated `transformer_block()` constructor. The example composes the layers
-directly. It has no dropout, weight tying, KV cache, or built-in sampling API.
+directly. It has no weight tying, KV cache, or built-in sampling API. Add
+[dropout](layers/dropout.md) after the embedding, attention, and feed-forward branches when
+regularization is needed, and call `model.eval()` before generation.
 
 ## Mask semantics
 
@@ -236,7 +238,8 @@ $$
 
 Context must not exceed `max_length`. Truncating the context resets learned position numbering
 to zero for the retained window. There is no incremental KV cache, so each call recomputes the
-whole context.
+whole context. Call `model.eval()` before generation so [dropout](layers/dropout.md) is
+disabled; call `model.train()` again before the next training step.
 
 The [Transformer notebook](../examples/simple_transformer/simple_transformer.ipynb) includes a
 small byte-level BPE tokenizer. It starts with byte IDs, learns frequent pair merges, and

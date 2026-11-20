@@ -47,7 +47,7 @@ pure Python, use `np.asarray(prediction).ravel()` or operate on the nested lists
 [simple_transformer.ipynb](../examples/simple_transformer/simple_transformer.ipynb) implements a
 byte-level BPE tokenizer, trains a small causal model on a single paragraph, and generates tokens
 greedily. Its model uses learned token/position embeddings, multi-head attention,
-pre-normalization residual blocks, GELU, and vocabulary softmax.
+pre-normalization residual blocks, dropout, GELU, and vocabulary softmax.
 
 The tokenizer is notebook code, not a Neurality API. Keep learned merges and vocabulary with any
 saved model. A one-paragraph fitting exercise does not demonstrate broad language capabilities.
@@ -67,6 +67,7 @@ python -m unittest discover -s tests -v
 | `test_attention.py` | Attention gradients, causal behavior, token learning, backend/optimizer parity, JSON, pure-Python operation without NumPy |
 | `test_gelu.py` | GELU values, finite-difference derivative, dense backward, serialization |
 | `test_multihead_attention.py` | Multi-head parameter gradients, padding/causal masks, validation, save/load |
+| `test_dropout.py` | Train/eval masks, inverted scaling, backward mask, validation, save/load |
 | `test_transformer_components.py` | Position/norm/residual gradients, nested residual validation, backend round trips |
 
 Finite-difference checks compare analytical updates with loss changes under small parameter
@@ -83,6 +84,7 @@ arbitrary datasets.
 | Missing `neurality.Backends` or `neurality.Optimizers` | Import the class as `N` and use `N.Backends` / `N.Optimizers`; these are nested classes. |
 | `Call forward before backward` | Run forward first; backend conversion also clears the required cache. |
 | Incorrect training after validation | Validation replaced the training cache. Put validation after the update, or rerun the training forward. |
+| Predictions change on every validation run | Dropout is still active. Call `model.eval()` or pass `training=False` to `forward()`. |
 | Input-shape or matrix multiplication error | For non-default widths, call `fit()` before dense construction; preserve input width, and distinguish $(B,D)$ from $(B,T,D)$. |
 | Target/gradient shape error | Match output shape; CCE needs one-hot/distribution targets. Custom callbacks receive flattened rows. |
 | Inconsistent results across backends | Check exact target shapes and NumPy broadcasting; compare identical parameters with floating-point tolerance. See [backends](backends.md#numerical-behavior-and-parity). |
@@ -99,9 +101,9 @@ arbitrary datasets.
 ## Scope and extension points
 
 Neurality is an educational implementation. It has no GPU execution, convolution/recurrent
-layers, general autodiff graph, built-in trainer, early stopping, tokenizer, dropout, or
-integrated masked-loss API. Pure Python support does not establish MicroPython or
-microcontroller compatibility.
+layers, general autodiff graph, built-in trainer, early stopping, tokenizer, or integrated
+masked-loss API. Pure Python support does not establish MicroPython or microcontroller
+compatibility.
 
 For custom experiments, use explicit dense activations/derivatives, custom initializers, or
 probability-gradient callbacks through the existing APIs. Adding a new trainable layer requires

@@ -82,8 +82,9 @@ $$
 $$
 
 The final batch may be smaller. Set `batch_size = 1` for online updates or
-`batch_size = len(X)` for full-batch updates. There is no built-in `train()`, `batch_size`, or
-gradient accumulation interface.
+`batch_size = len(X)` for full-batch updates. There is no built-in training loop,
+`batch_size`, or gradient accumulation interface. `model.train()` and `model.eval()` only switch
+dropout mode; they do not run an epoch.
 
 The reported epoch loss combines predictions made at different parameter states during the
 epoch. For a metric at one fixed parameter state, run another forward over the evaluation set
@@ -113,8 +114,9 @@ the parameters changed by the first call.
 
 ## Validation and early stopping
 
-Validation is another forward pass and does not update weights. There is no `train()`/`eval()`
-mode switch; current layers have no dropout or running batch statistics.
+Validation is another forward pass and does not update weights. Call `model.eval()` to disable
+dropout before validation, then `model.train()` before the next training step. Other layers have
+no running batch statistics and behave identically in both modes.
 
 The following fragment continues the mini-batch example. Replace `X_val` and `y_val` with your
 separate validation split in a real experiment:
@@ -122,12 +124,15 @@ separate validation split in a real experiment:
 ```python
 X_val, y_val = X, y  # Demonstration only; use held-out data for real evaluation.
 
+model.eval()
 validation_prediction = model.forward(X_val)
 validation_loss = N.Loss.loss_bce(validation_prediction, y_val)
 
 labels = [int(row[0] >= 0.5) for row in validation_prediction]
 accuracy = sum(a == b[0] for a, b in zip(labels, y_val)) / len(y_val)
 print(validation_loss, accuracy)
+
+model.train()
 ```
 
 The thresholded label is

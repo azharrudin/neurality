@@ -73,6 +73,7 @@ the runtime backend.
 | `embedding` | `vocab_size`, `embedding_size` | `weights`, shape $(V,D)$ |
 | `positional_embedding` | `embedding_size`, `max_length` | `weights`, shape $(L_{\max},D)$ |
 | `norm` | `embedding_size`, `epsilon` | `gamma`, `beta`, each shape $(D,)$ |
+| `dropout` | `embedding_size`, `rate` | none |
 | `attention` | `embedding_size`, `key_size`, `causal` | `Wq`, `Wk` of shape $(D,d_k)$; `Wv` of shape $(D,D)$ |
 | `multihead_attention` | `embedding_size`, `num_heads`, `causal` | `Wq`, `Wk`, `Wv`, `Wo`, each shape $(D,D)$ |
 | `residual_start` | `embedding_size` | none |
@@ -102,8 +103,8 @@ Loading validates:
 - a positive integer `input_size`;
 - supported layer types;
 - parameter dimensions and finite values;
-- layer configuration consistency (widths, head counts, residual balance, epsilon, and boolean
-  flags such as `causal`).
+- layer configuration consistency (widths, head counts, residual balance, epsilon, dropout
+  rates, and boolean flags such as `causal`).
 
 Malformed model structures raise
 
@@ -125,6 +126,7 @@ functions directly rather than wrappers with similar behavior.
 | Feature order, encoders, means, standard deviations | Store preprocessing metadata separately |
 | Tokenizer vocabulary, merge order, special-token conventions | Save and restore the exact token mapping |
 | Class names, thresholds, training epoch, random state | Store experiment metadata separately |
+| Train/eval mode | Call `model.eval()` before inference or `model.train()` before resuming training |
 
 This format is a parameter checkpoint, not a complete training-session snapshot. Reloading Adam
 weights without Adam moments does not reproduce uninterrupted training exactly.

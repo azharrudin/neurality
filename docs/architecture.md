@@ -152,16 +152,17 @@ model that failed to construct.
 
 ## Forward pass
 
-`forward(data, padding_mask=None)` performs these steps:
+`forward(data, padding_mask=None, training=None)` performs these steps:
 
 1. Convert input to the model backend and promote a 1D vector to a 2D batch.
 2. Validate rank, non-emptiness, finiteness, and feature width (or token-ID rank for embedding
    models).
 3. Validate `padding_mask` if supplied.
-4. Reset `layer_inputs`, `layer_linear`, and `_caches`.
-5. Execute each layer in `model.layers`, appending its input, linear cache, and layer-specific
+4. Resolve the training mode from `training` or `model.training`; dropout uses it.
+5. Reset `layer_inputs`, `layer_linear`, and `_caches`.
+6. Execute each layer in `model.layers`, appending its input, linear cache, and layer-specific
    cache.
-6. Store the result in `model.output` and return it.
+7. Store the result in `model.output` and return it.
 
 Each layer's forward map has the general form
 
@@ -267,6 +268,8 @@ The forward cache lives on the model:
 Rules that follow from this design:
 
 - Call `forward()` before `backward()`. Otherwise backward raises `Call forward before backward`.
+- Dropout stores its sampled mask in `_caches`; backward reuses that mask. Call `model.eval()`
+  for validation and inference so dropout is disabled.
 - Do not run a validation or inference forward between a training forward and its backward.
   The second forward overwrites the cache used by the update.
 - After an optimizer update, run forward again before the next backward.

@@ -25,6 +25,7 @@ These guides describe the implementation in [`lib/neurality.py`](../lib/neuralit
 | [Attention](layers/attention.md) | Single-head self-attention |
 | [Multi-head attention](layers/multihead-attention.md) | Parallel heads plus output projection |
 | [Layer normalization](layers/normalization.md) | Per-token feature normalization |
+| [Dropout](layers/dropout.md) | Training-time regularization mask |
 | [Residual connections](layers/residual.md) | Skip connections with nested pairing |
 
 ### Mathematical components
@@ -53,7 +54,8 @@ These guides describe the implementation in [`lib/neurality.py`](../lib/neuralit
 - **Building a Transformer:** read the [layer overview](layers/README.md), then
   [embedding](layers/embedding.md), [attention](layers/attention.md),
   [multi-head attention](layers/multihead-attention.md),
-  [normalization](layers/normalization.md), and [residual connections](layers/residual.md).
+  [normalization](layers/normalization.md), [dropout](layers/dropout.md), and
+  [residual connections](layers/residual.md).
   Finish with [Attention and Transformers](transformer.md).
 - **Debugging or extending:** read [architecture](architecture.md) and the
   [API reference](api.md), then the relevant layer page.

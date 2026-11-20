@@ -22,6 +22,7 @@ inference graph, and no branching syntax beyond residual start/end markers.
 | [Attention](attention.md) | `attention` | $\mathrm{softmax}(QK^\top/\sqrt{d_k})V$ | unchanged | $W_Q, W_K, W_V$ |
 | [Multi-head attention](multihead-attention.md) | `multihead_attention` | $\mathrm{Concat}(O_1,\dots,O_H)W_O$ | unchanged | $W_Q, W_K, W_V, W_O$ |
 | [Layer normalization](normalization.md) | `norm` | $\gamma \odot \hat{x} + \beta$ | unchanged | $\gamma, \beta$ |
+| [Dropout](dropout.md) | `dropout` | elementwise training mask | unchanged | none |
 | [Residual start](residual.md) | `residual_start` | pushes $x$ onto a stack | unchanged | none |
 | [Residual end](residual.md) | `residual_end` | $F(x) + x$ | unchanged | none |
 
@@ -79,6 +80,22 @@ exclude padded **keys and values**; it does not exclude padded queries, and it d
 losses. See [attention masks](attention.md#padding-masks) and
 [transformer mask semantics](../transformer.md#mask-semantics).
 
+### Training and evaluation modes
+
+Dropout is active only when the model is in training mode. New models start in training mode.
+Use `model.train()` and `model.eval()` to switch, or pass `training=False` to one `forward()`
+call. Other layers do not change behavior between training and evaluation.
+
+```python
+model.train()                  # dropout active
+train_prediction = model.forward(X)
+
+model.eval()                   # dropout disabled
+validation_prediction = model.forward(X_val)
+```
+
+See [dropout](dropout.md) and [training](../training.md).
+
 ### Residual pairing
 
 `residual_start()` and `residual_end()` must be balanced, and the feature width must be
@@ -97,7 +114,8 @@ name; parameters are stored as nested JSON numbers, independent of the runtime b
 - **Token input:** [embedding](embedding.md) → optional [positional embedding](positional-embedding.md)
   → attention block(s) → output projection.
 - **Transformer-style block:** pre-normalize, attend, residual-add, pre-normalize, feed-forward,
-  residual-add. Neurality provides the pieces but no packaged block; see
+  residual-add. Add [dropout](dropout.md) on the embedding, attention, and feed-forward branches
+  when regularization is needed. Neurality provides the pieces but no packaged block; see
   [Attention and Transformers](../transformer.md).
 - **Classification head:** dense with softmax for mutually exclusive classes, or sigmoid for
   independent binary labels. See [losses](../loss.md) for the matching objective.

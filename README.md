@@ -199,13 +199,14 @@ Start with the [documentation index](docs/README.md).
 |---|---|
 | [Architecture](docs/architecture.md) | Internal representation, forward/backward mechanics, tensor shapes, caches, backends |
 | [Backends](docs/backends.md) | NumPy vs native Python: selection, representation, runtime switching, parity, performance |
-| [Layer guides](docs/layers/README.md) | One page per layer: dense, embeddings, attention, normalization, residuals |
+| [Layer guides](docs/layers/README.md) | One page per layer: dense, embeddings, attention, normalization, dropout, residuals |
 | [Dense layer](docs/layers/dense.md) | Construction, forward equation, weight layout, softmax handling, gradients |
 | [Token embeddings](docs/layers/embedding.md) | Lookup tables, index validation, gradient accumulation |
 | [Positional embeddings](docs/layers/positional-embedding.md) | Learned positions, length limits, gradient summation |
 | [Single-head attention](docs/layers/attention.md) | Q/K/V projections, masked softmax, backward pass |
 | [Multi-head attention](docs/layers/multihead-attention.md) | Head splitting, output projection, backward pass |
 | [Layer normalization](docs/layers/normalization.md) | Statistics, affine parameters, gradient derivation |
+| [Dropout](docs/layers/dropout.md) | Training masks, inverted scaling, train/eval modes |
 | [Residual connections](docs/layers/residual.md) | Nested skip connections and gradient routing |
 | [Activations](docs/activations.md) | Every activation and derivative, with equations |
 | [Losses and gradients](docs/loss.md) | MSE, BCE, CCE, reduction rules, fused softmax + CCE |
@@ -274,11 +275,12 @@ datasets.
 - **No automatic differentiation.** Every layer implements an explicit backward pass. Custom
   layers require coordinated changes to construction, forward, backward, backend conversion,
   serialization, and validation.
-- **No trainer.** There is no `train()`, `batch_size`, gradient accumulation, early stopping,
-  or validation loop. The [training guide](docs/training.md) shows how to write one.
+- **No trainer.** There is no built-in training loop, `batch_size`, gradient accumulation, early
+  stopping, or validation loop. `train()`/`eval()` only toggle dropout mode. The
+  [training guide](docs/training.md) shows how to write a loop.
 - **No tokenizer.** The BPE tokenizer in the Transformer notebook is example code, not part of
   the library. Persist vocabulary and merge order alongside model weights.
-- **No GPU, convolution, recurrence, dropout, or KV cache.** Attention recomputes the full
+- **No GPU, convolution, recurrence, or KV cache.** Attention recomputes the full
   context on every forward call.
 - **Padding masks affect attention keys and values only.** They do not remove padded positions
   from built-in losses. Padding-aware objectives require a masked loss and gradient in

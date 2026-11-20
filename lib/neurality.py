@@ -194,6 +194,19 @@ class Neurality:
                 return Neurality.Math.numpy().random.randn(size) * scale
             return [random.gauss(0, scale) for _ in range(size)]
 
+        @staticmethod
+        def rand(shape, backend=None):
+            backend = Neurality._default_backend if backend is None else backend
+            shape = tuple(shape)
+            if backend is Neurality.Backends.NUMPY:
+                return Neurality.Math.numpy().random.rand(*shape)
+
+            def build(dimensions):
+                if not dimensions:
+                    return random.random()
+                return [build(dimensions[1:]) for _ in range(dimensions[0])]
+            return build(shape)
+
     class Optimizers:
         class SGD:
             def __init__(self, learning_rate=0.01):
@@ -446,6 +459,16 @@ class Neurality:
         self.HIDDEN_LAYER = 3
         self.OUTPUT = 1
         self._optimizer = self.Optimizers.SGD(learning_rate=0.1)
+        self.training = True
+
+    def train(self, mode=True):
+        if type(mode) is not bool:
+            raise ValueError("mode must be a boolean")
+        self.training = mode
+        return self
+
+    def eval(self):
+        return self.train(False)
 
     def optimizer(self, optimizer):
         if not isinstance(optimizer, self.Optimizers.SGD):
@@ -544,6 +567,14 @@ class Neurality:
         self.layers.append({"type": "norm", "embedding_size": size, "epsilon": float(epsilon),
                             "gamma": self.Math.array([1.0] * size, self._backend),
                             "beta": self.Math.array([0.0] * size, self._backend)})
+        return self
+
+    def dropout(self, rate=0.1):
+        if (isinstance(rate, bool) or not isinstance(rate, (int, float))
+                or not math.isfinite(rate) or not 0 <= rate < 1):
+            raise ValueError("rate must be in [0, 1)")
+        self.layers.append({"type": "dropout", "embedding_size": self._feature_size(),
+                            "rate": float(rate)})
         return self
 
     def residual_start(self):
@@ -684,7 +715,7 @@ class Neurality:
                     if saved["embedding_size"] != size:
                         raise ValueError("invalid residual feature size")
                     getattr(model, kind)()
-                elif kind in ("embedding", "attention", "multihead_attention", "positional_embedding", "norm"):
+                elif kind in ("embedding", "attention", "multihead_attention", "positional_embedding", "norm", "dropout"):
                     dimension = saved["embedding_size"]
                     if type(dimension) is not int or dimension <= 0:
                         raise ValueError("embedding_size must be a positive integer")
@@ -713,6 +744,14 @@ class Neurality:
                             raise ValueError("invalid positional embedding configuration")
                         layer["max_length"] = length
                         shapes = {"weights": (length, dimension)}
+                    elif kind == "dropout":
+                        rate = saved["rate"]
+                        if (dimension != size or isinstance(rate, bool)
+                                or not isinstance(rate, (int, float)) or not math.isfinite(rate)
+                                or not 0 <= rate < 1):
+                            raise ValueError("invalid dropout configuration")
+                        layer["rate"] = float(rate)
+                        shapes = {}
                     else:
                         epsilon = saved["epsilon"]
                         if dimension != size or isinstance(epsilon, bool) or not isinstance(epsilon, (int, float)) or not math.isfinite(epsilon) or epsilon <= 0:
@@ -778,8 +817,12 @@ class Neurality:
     def _restore_rows(self, rows, shape):
         return self.Math.reshape(rows, tuple(shape[:-1]) + (self.Math.shape(rows)[-1],))
 
-    def forward(self, data, padding_mask=None):
+    def forward(self, data, padding_mask=None, training=None):
         self._validate_residuals()
+        if training is None:
+            training = self.training
+        elif type(training) is not bool:
+            raise ValueError("training must be a boolean")
         output = self.Math.array(data, self._backend)
         if len(self.Math.shape(output)) == 1:
             output = self.Math.array([self.Math.tolist(output)], self._backend)
@@ -816,6 +859,22 @@ class Neurality:
                 output = self.Math.array([[self.Math.tolist(table[token]) for token in row] for row in ids], self._backend)
                 cache = {"ids": ids}
                 linear = None
+            elif kind == "dropout":
+                rate = layer["rate"]
+                if not training or rate == 0:
+                    cache, linear = {"shape": shape, "mask": None}, None
+                else:
+                    keep = 1.0 - rate
+                    random_values = self.Math.rand(shape, self._backend)
+                    if self._backend is self.Backends.NUMPY:
+                        mask = (random_values < keep).astype(float) / keep
+                    else:
+                        mask = self.Math.unary(
+                            random_values,
+                            lambda value: 1.0 / keep if value < keep else 0.0,
+                        )
+                    output = self.Math.mul(output, mask)
+                    cache, linear = {"shape": shape, "mask": mask}, None
             elif kind == "positional_embedding":
                 length = shape[-2]
                 if length > layer["max_length"]:
@@ -934,6 +993,10 @@ class Neurality:
                 residual_gradients.append(gradient)
             elif layer["type"] == "residual_start":
                 gradient = self.Math.add(gradient, residual_gradients.pop())
+            elif layer["type"] == "dropout":
+                mask = cache.get("mask")
+                if mask is not None:
+                    gradient = self.Math.mul(gradient, mask)
             elif layer["type"] == "positional_embedding":
                 shape = cache["shape"]
                 sequences = [self.Math.tolist(gradient)] if len(shape) == 2 else self.Math.tolist(gradient)

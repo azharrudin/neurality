@@ -18,8 +18,10 @@ Everything is nested inside the `Neurality` class. There is no module-level `Bac
 | `model.fit(data, target=None)` | Stores data/target and sets the input feature count from the last dimension. Returns the model. Does not train. |
 | `model.backend(backend)` | Converts data and parameters to the selected backend, resets optimizer state, and clears forward caches. Returns the model. |
 | `model.optimizer(optimizer)` | Copies optimizer configuration and starts with fresh optimizer state. Returns the model. |
-| `model.forward(data, padding_mask=None)` | Returns predictions and replaces all forward caches. |
+| `model.forward(data, padding_mask=None, training=None)` | Returns predictions and replaces all forward caches. `training` overrides the model mode for this call. |
 | `model.backward(target, gradient_function, learning_rate=None)` | Computes gradients and immediately applies one optimizer update. Returns the model. |
+| `model.train(mode=True)` | Sets training mode. Dropout is active only in training mode. Returns the model. |
+| `model.eval()` | Equivalent to `train(False)`. Returns the model. |
 | `model.save(path)` | Writes JSON and returns the model. |
 | `N.load(path, backend=None)` | Class method returning a new model. |
 
@@ -66,7 +68,7 @@ model.fit(data, target=None)
 | Dense over sequences | $(B,T,D)$ | $(B,T,C)$ |
 | Token embedding | $(T,)$ or $(B,T)$ | $(1,T,D)$ or $(B,T,D)$ |
 | Standalone attention | $(T,D)$ or $(B,T,D)$ | same shape |
-| Positional embedding, norm, residual | feature matrix or batch | same shape |
+| Positional embedding, norm, dropout, residual | feature matrix or batch | same shape |
 
 A 2D matrix passed to attention represents **one sequence**; its rows attend to one another. A
 3D tensor represents independent sequences.
@@ -84,6 +86,7 @@ All builders return the model and support chaining.
 | `embedding(vocab_size, embedding_size)` | Trainable token table; must be first | [Embedding](layers/embedding.md) |
 | `positional_embedding(max_length)` | Learned position vectors | [Positional](layers/positional-embedding.md) |
 | `norm(epsilon=1e-5)` | Layer normalization over the final feature axis | [Normalization](layers/normalization.md) |
+| `dropout(rate=0.1)` | Training-time elementwise dropout with inverted scaling | [Dropout](layers/dropout.md) |
 | `residual_start()` | Push the current tensor for a skip connection | [Residual](layers/residual.md) |
 | `residual_end()` | Add the saved tensor to the branch output | [Residual](layers/residual.md) |
 | `attention(key_size=None, causal=False, embedding_size=None)` | Single-head self-attention | [Attention](layers/attention.md) |
@@ -99,6 +102,8 @@ Key defaults and constraints:
 - **Positional embedding.** `max_length` must be a positive integer. The feature width follows
   the preceding layer or `INPUT_SIZE`. There is no embedding-size argument.
 - **Norm.** `epsilon` must be positive, finite, and not a boolean.
+- **Dropout.** `rate` must be finite and in $[0,1)$; booleans are rejected. The layer has no
+  trainable parameters. Dropout is active only in training mode.
 - **Residual markers.** Pairs must be balanced and restore the feature width. Forward also
   requires the complete tensor shape to match.
 - **Attention.** `key_size` defaults to the feature width. `causal` must be a real boolean.
@@ -117,6 +122,13 @@ does not freeze embedding rows, and does not remove padded positions from losses
 general pairwise attention mask. See
 [attention masks](layers/attention.md#padding-masks) and
 [Transformer mask semantics](transformer.md#mask-semantics).
+
+## Training mode
+
+New models start in training mode. `model.eval()` disables dropout for validation and
+generation; `model.train()` re-enables it. Passing `training=False` to `forward()` disables
+dropout for one call without changing the model mode. Other layers behave identically in both
+modes, and there are no running statistics to update.
 
 ## Backward callback
 
